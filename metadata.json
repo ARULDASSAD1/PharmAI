@@ -1,0 +1,6 @@
+{
+  "name": "PharmAI Repurpose Engine",
+  "description": "Interactive AI-Powered Drug Repurposing Engine utilizing GNN Knowledge Graphs, Dual-Embedding Vectorization, In-Silico Toxicity Screening, and AI hypothesis generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
