@@ -188,7 +188,7 @@ export const AiMetricsPanel: React.FC<AiMetricsPanelProps> = ({
               <div className="py-8 text-center space-y-2">
                 <RefreshCw className="w-5 h-5 animate-spin text-cyan-400 mx-auto" />
                 <p className="text-slate-400 text-[11px]">
-                  Consulting AI reasoning models...
+                  Consulting Bioinformatics AI Agent...
                 </p>
               </div>
             ) : geminiError ? (

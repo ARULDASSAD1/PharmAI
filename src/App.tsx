@@ -282,7 +282,7 @@ export default function App() {
         body: JSON.stringify({
           prompt: promptToRun,
           systemInstruction:
-            'You are PharmAI, an expert AI Bio-Informatics Scientist specializing in GNN drug repurposing, binding affinities, and oncology mechanism analysis.',
+            'You are PharmAI, an expert Bioinformatics AI Agent specializing in GNN drug repurposing, binding affinities, and oncology mechanism analysis. Whenever introducing or identifying yourself, always state that you are a Bioinformatics AI Agent (not a human bioinformatic scientist).',
           temperature: 0.3,
         }),
       });
@@ -349,7 +349,7 @@ export default function App() {
               </div>
               <div className="flex items-center space-x-2 text-emerald-400">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Computing GNN Graph Embeddings (Gemini 3.6 Flash)...</span>
+                <span>Computing GNN Graph Embeddings (AI Engine)...</span>
               </div>
               <div className="flex items-center space-x-2 text-teal-300">
                 <Sparkles className="w-4 h-4 text-teal-400" />

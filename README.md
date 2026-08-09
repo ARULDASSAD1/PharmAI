@@ -1,10 +1,10 @@
 # PharmAI Repurpose Engine
 
-An interactive, AI-powered drug repurposing and virtual screening platform. PharmAI leverages Graph Neural Network (GNN) knowledge graphs, BioBERT literature verification, dual-embedding vectorization, and in-silico toxicity modeling powered by Gemini 3.6 Flash.
+An interactive, AI-powered drug repurposing and virtual screening platform. PharmAI leverages Graph Neural Network (GNN) knowledge graphs, BioBERT literature verification, dual-embedding vectorization, and in-silico toxicity modeling powered by advanced AI models.
 
 ## 🚀 Key Capabilities
 
-- **AI-Driven Repurposing Predictions:** Predict high-affinity FDA-approved or investigational candidates for target diseases using molecular docking models and Gemini AI.
+- **AI-Driven Repurposing Predictions:** Predict high-affinity FDA-approved or investigational candidates for target diseases using molecular docking models and AI.
 - **Interactive Knowledge Graphs & Pathway Mapping:** Dynamic SVG graph visualizer mapping disease targets, protein/gene targets, and candidate drug interactions with AI match scores.
 - **In-Silico Safety & Toxicity Radar:** Evaluates hepatotoxicity, cardiotoxicity (hERG), nephrotoxicity, and neurotoxicity with overall safety indices.
 - **BioBERT Literature Verification:** Real-time PubMed citation tracking with confidence scores across 35M indexed papers.
@@ -14,7 +14,7 @@ An interactive, AI-powered drug repurposing and virtual screening platform. Phar
 ## 🛠️ Tech Stack
 
 - **Frontend:** React 18, TypeScript, Tailwind CSS, Lucide React, jsPDF, html2canvas
-- **Backend:** Node.js, Express, Vite, `@google/genai` (Gemini 3.6 Flash API)
+- **Backend:** Node.js, Express, Vite, `@google/genai` (AI Full-Stack API)
 - **Data & Storage:** In-memory caching with browser local storage persistence
 
 ## 🚦 Getting Started
