@@ -1,3 +1,19 @@
-import { app } from '../app';
+export default function handler(req: any, res: any) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-export default app;
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  return res.status(200).json({
+    status: 'online',
+    message: 'PharmAI Engine API is active',
+    endpoints: [
+      '/api/gemini/status',
+      '/api/gemini/generate',
+      '/api/repurpose/predict',
+    ],
+  });
+}
