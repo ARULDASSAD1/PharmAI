@@ -10,9 +10,10 @@ function getApiKey(): string | undefined {
   );
 }
 
-const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.6-flash'];
+const CANDIDATE_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash'];
 
 export default async function handler(req: any, res: any) {
+  // CORS & Methods
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -31,9 +32,8 @@ export default async function handler(req: any, res: any) {
 
     const apiKey = getApiKey();
 
-    // 1. If API Key is missing, return smart suite fallback immediately
+    // If no API Key is set in Vercel, return high-fidelity fallback immediately
     if (!apiKey) {
-      console.log(`[Repurpose API] No GEMINI_API_KEY found. Generating smart suite for "${diseaseName}"`);
       const fallbackData = generateRepurposingSuite(diseaseName);
       return res.status(200).json({
         success: true,
@@ -42,29 +42,22 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 2. Try Gemini API models
-    try {
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
-      });
+    // Call Gemini with a 7-second hard limit to prevent Vercel Serverless Function 10s timeout
+    const fetchGeminiSuite = async () => {
+      const ai = new GoogleGenAI({ apiKey });
 
       const prompt = `As a PharmAI Graph Neural Network (GNN) and Molecular Biology engine, generate a comprehensive drug repurposing analysis for the disease target: "${diseaseName}".
-Provide 4 to 5 realistic, scientifically plausible FDA-approved or clinical-stage drug candidate molecules that could be repurposed for "${diseaseName}".
-Include precise SMILES strings, binding energy (ΔG in kcal/mol like "-9.8"), target genes, concise mechanism of action, toxicity breakdown, clinical trial protocols, and knowledge graph nodes/edges for visualization. Keep descriptions concise to maintain valid JSON output.
+Provide 3 to 4 realistic, scientifically plausible FDA-approved or clinical-stage drug candidates that could be repurposed for "${diseaseName}".
+Include precise SMILES strings, binding energy (ΔG e.g. "-9.2 kcal/mol"), target genes, concise mechanism of action, toxicity breakdown, clinical trial protocols, and knowledge graph nodes/edges. Keep text concise.
 
-Return ONLY a valid JSON object following this exact schema:
+Return ONLY a valid JSON object matching this schema:
 {
   "disease": {
     "id": "slug-id",
     "name": "${diseaseName}",
     "category": "Oncology",
     "affectedPopulation": "320K diagnoses annually",
-    "keyProteins": ["ProteinA", "ProteinB", "ProteinC"],
+    "keyProteins": ["ProteinA", "ProteinB"],
     "gnnEmbeddingsCount": 320000,
     "description": "Clinical overview of ${diseaseName}"
   },
@@ -72,18 +65,18 @@ Return ONLY a valid JSON object following this exact schema:
     {
       "id": "drug-slug",
       "name": "Drug Name",
-      "smiles": "Valid Canonical SMILES string",
-      "formula": "Chemical Formula e.g. C16H19N3O4S",
+      "smiles": "Valid Canonical SMILES",
+      "formula": "Chemical Formula",
       "molecularWeight": 353.4,
-      "originalIndication": "Original Approved Disease",
+      "originalIndication": "Original Disease",
       "originalCategory": "Drug Class",
-      "repurposedIndication": "Repurposed Indication in ${diseaseName}",
+      "repurposedIndication": "Repurposed Target in ${diseaseName}",
       "aiMatchScore": 92,
       "bindingEnergy": "-9.2 kcal/mol",
       "targetGene": "GENE_SYMBOL",
       "toxicityStatus": "FDA Approved - Low Safety Risk",
       "literatureCount": 185,
-      "mechanismOfAction": "Concise mechanism description in ${diseaseName}",
+      "mechanismOfAction": "Mechanism of action",
       "toxicityBreakdown": {
         "hepatotoxicity": 14,
         "cardiotoxicity": 9,
@@ -95,8 +88,8 @@ Return ONLY a valid JSON object following this exact schema:
         "recommendedDosage": "250 mg BID",
         "estimatedDurationMonths": 12,
         "targetPatientCohort": "Cohort description",
-        "primaryEndpoints": ["Endpoint 1", "Endpoint 2"],
-        "suggestedBiomarkers": ["Biomarker 1", "Biomarker 2"]
+        "primaryEndpoints": ["Endpoint 1"],
+        "suggestedBiomarkers": ["Biomarker 1"]
       }
     }
   ],
@@ -111,9 +104,6 @@ Return ONLY a valid JSON object following this exact schema:
   ]
 }`;
 
-      let parsedData: any = null;
-      let lastError: any = null;
-
       for (const modelName of CANDIDATE_MODELS) {
         try {
           const response = await ai.models.generateContent({
@@ -122,7 +112,7 @@ Return ONLY a valid JSON object following this exact schema:
             config: {
               responseMimeType: 'application/json',
               temperature: 0.2,
-              maxOutputTokens: 8192,
+              maxOutputTokens: 3500,
             },
           });
 
@@ -135,24 +125,26 @@ Return ONLY a valid JSON object following this exact schema:
 
           const data = JSON.parse(rawText);
           if (data && data.disease && data.candidates && data.candidates.length > 0) {
-            parsedData = data;
-            break;
+            return data;
           }
         } catch (err: any) {
-          console.warn(`[Repurpose API] Model ${modelName} failed for disease "${diseaseName}": ${err.message}`);
-          lastError = err;
+          console.warn(`[Repurpose API] Model ${modelName} failed: ${err.message}`);
         }
       }
+      return null;
+    };
 
-      if (!parsedData) {
-        throw lastError || new Error('Incomplete data structure from Gemini model.');
-      }
+    // 7.5s Timeout Guard for Vercel Serverless
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 7500));
 
-      // Enrich graphNodes to include proper score and category fields
-      if (Array.isArray(parsedData.graphNodes)) {
-        parsedData.graphNodes = parsedData.graphNodes.map((n: any) => {
+    const resultData: any = await Promise.race([fetchGeminiSuite(), timeoutPromise]);
+
+    if (resultData) {
+      // Enrich graphNodes
+      if (Array.isArray(resultData.graphNodes)) {
+        resultData.graphNodes = resultData.graphNodes.map((n: any) => {
           if (n.type === 'drug') {
-            const matchedCand = parsedData.candidates.find((c: any) =>
+            const matchedCand = resultData.candidates.find((c: any) =>
               c.id === n.id.replace('drug-', '') ||
               c.name.toLowerCase() === n.label.toLowerCase() ||
               n.id.includes(c.id) ||
@@ -170,22 +162,34 @@ Return ONLY a valid JSON object following this exact schema:
 
       return res.status(200).json({
         success: true,
-        data: parsedData,
+        data: resultData,
         source: 'pharmai-gnn-engine',
       });
-    } catch (err: any) {
-      console.warn(`[Repurpose API] Gemini call failed (${err.message}). Using fallback generator for "${diseaseName}"`);
-      const fallbackData = generateRepurposingSuite(diseaseName);
+    }
+
+    // Fallback if Gemini timed out or failed
+    const fallbackData = generateRepurposingSuite(diseaseName);
+    return res.status(200).json({
+      success: true,
+      data: fallbackData,
+      source: 'smart-repurposing-engine',
+    });
+  } catch (err: any) {
+    // Never crash or return 500; always return status 200 with fallback data
+    console.error('[Repurpose API] Unhandled error:', err);
+    try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      const fallbackData = generateRepurposingSuite(body.diseaseName || 'Custom Target');
       return res.status(200).json({
         success: true,
         data: fallbackData,
         source: 'smart-fallback-engine',
       });
+    } catch {
+      return res.status(200).json({
+        success: false,
+        error: 'Error processing request.',
+      });
     }
-  } catch (err: any) {
-    return res.status(200).json({
-      success: false,
-      error: err.message || 'Error processing repurposing prediction.',
-    });
   }
 }

@@ -9,7 +9,7 @@ function getApiKey(): string | undefined {
   );
 }
 
-const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.6-flash'];
+const CANDIDATE_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash'];
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -40,39 +40,34 @@ export default async function handler(req: any, res: any) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const { prompt, systemInstruction, temperature, jsonMode } = body;
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
+    const fetchGemini = async () => {
+      const ai = new GoogleGenAI({ apiKey });
 
-    const config: any = {};
-    if (systemInstruction) config.systemInstruction = systemInstruction;
-    if (temperature !== undefined) config.temperature = Number(temperature);
-    if (jsonMode) config.responseMimeType = 'application/json';
+      const config: any = {};
+      if (systemInstruction) config.systemInstruction = systemInstruction;
+      if (temperature !== undefined) config.temperature = Number(temperature);
+      if (jsonMode) config.responseMimeType = 'application/json';
 
-    let lastError: any = null;
-    let responseText: string | null = null;
-
-    for (const modelName of CANDIDATE_MODELS) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: prompt || 'Hello',
-          config: Object.keys(config).length > 0 ? config : undefined,
-        });
-        if (response && response.text) {
-          responseText = response.text;
-          break;
+      for (const modelName of CANDIDATE_MODELS) {
+        try {
+          const response = await ai.models.generateContent({
+            model: modelName,
+            contents: prompt || 'Hello',
+            config: Object.keys(config).length > 0 ? config : undefined,
+          });
+          if (response && response.text) {
+            return response.text;
+          }
+        } catch (err: any) {
+          console.warn(`[Gemini API] Model ${modelName} failed: ${err.message}`);
         }
-      } catch (err: any) {
-        console.warn(`[Gemini API] Model ${modelName} failed: ${err.message}`);
-        lastError = err;
       }
-    }
+      return null;
+    };
+
+    // 7.5s Timeout Guard
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 7500));
+    const responseText = await Promise.race([fetchGemini(), timeoutPromise]);
 
     if (responseText !== null) {
       return res.status(200).json({
@@ -84,7 +79,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       success: false,
-      error: (lastError && lastError.message) || 'Failed to call Gemini AI API.',
+      error: 'Gemini AI API call timed out or failed to respond. Please verify your GEMINI_API_KEY.',
     });
   } catch (err: any) {
     return res.status(200).json({
