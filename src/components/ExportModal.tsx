@@ -118,6 +118,160 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
+        onclone: (clonedDoc, clonedElement) => {
+          const replaceCssColorFunctions = (cssText: string): string => {
+            if (!cssText) return cssText;
+            if (!/(oklch|oklab|color-mix|light-dark|color|lab|lch|hwb)/i.test(cssText)) {
+              return cssText;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 1;
+            canvas.height = 1;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+            const toRgb = (colorExpr: string): string => {
+              if (!ctx) return 'rgb(30, 41, 59)';
+              try {
+                ctx.fillStyle = '#000000';
+                ctx.fillStyle = colorExpr;
+                const resolved = ctx.fillStyle;
+                if (resolved.startsWith('#')) {
+                  let hex = resolved.slice(1);
+                  if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');
+                  if (hex.length === 6) {
+                    const r = parseInt(hex.substring(0, 2), 16);
+                    const g = parseInt(hex.substring(2, 4), 16);
+                    const b = parseInt(hex.substring(4, 6), 16);
+                    return `rgb(${r}, ${g}, ${b})`;
+                  }
+                }
+                if (resolved.startsWith('rgb')) return resolved;
+              } catch {
+                // ignore
+              }
+              return 'rgb(30, 41, 59)';
+            };
+
+            let result = cssText;
+            let iterations = 0;
+
+            while (iterations < 25) {
+              iterations++;
+              const regex = /(oklch|oklab|color-mix|light-dark|color|lab|lch|hwb)\s*\(/gi;
+              const match = regex.exec(result);
+              if (!match) break;
+
+              const startIdx = match.index;
+              const openParenIdx = startIdx + match[0].length - 1;
+
+              let depth = 1;
+              let closeParenIdx = -1;
+              for (let i = openParenIdx + 1; i < result.length; i++) {
+                if (result[i] === '(') depth++;
+                else if (result[i] === ')') {
+                  depth--;
+                  if (depth === 0) {
+                    closeParenIdx = i;
+                    break;
+                  }
+                }
+              }
+
+              if (closeParenIdx !== -1) {
+                const fullExpr = result.substring(startIdx, closeParenIdx + 1);
+                const rgbVal = toRgb(fullExpr);
+                result = result.substring(0, startIdx) + rgbVal + result.substring(closeParenIdx + 1);
+              } else {
+                break;
+              }
+            }
+
+            if (/(oklch|oklab|color-mix|light-dark|color|lab|lch|hwb)/i.test(result)) {
+              result = result.replace(/(oklch|oklab|color-mix|light-dark|color|lab|lch|hwb)\s*\([^)]*\)/gi, 'rgb(30, 41, 59)');
+            }
+
+            return result;
+          };
+
+          // 1. Collect all CSS rules from active stylesheets and style tags
+          let rawCss = '';
+          Array.from(document.styleSheets).forEach((sheet) => {
+            try {
+              const rules = sheet.cssRules;
+              if (rules) {
+                for (let i = 0; i < rules.length; i++) {
+                  rawCss += rules[i].cssText + '\n';
+                }
+              }
+            } catch {
+              // ignore cross-origin sheet
+            }
+          });
+
+          clonedDoc.querySelectorAll('style').forEach((st) => {
+            if (st.textContent) {
+              rawCss += st.textContent + '\n';
+            }
+          });
+
+          // 2. Convert all unsupported color functions in combined CSS to rgb(...)
+          const sanitizedCss = replaceCssColorFunctions(rawCss);
+
+          // 3. Replace all style/link tags in clonedDoc with the sanitized CSS
+          clonedDoc.querySelectorAll('link[rel="stylesheet"], style').forEach((el) => el.remove());
+          const newStyle = clonedDoc.createElement('style');
+          newStyle.textContent = sanitizedCss;
+          clonedDoc.head.appendChild(newStyle);
+
+          // 4. Sanitize inline and computed styles on clonedElement and all children
+          if (clonedElement) {
+            const colorProps = [
+              'color',
+              'backgroundColor',
+              'borderColor',
+              'borderTopColor',
+              'borderRightColor',
+              'borderBottomColor',
+              'borderLeftColor',
+              'outlineColor',
+              'fill',
+              'stroke',
+              'boxShadow',
+              'textShadow',
+            ];
+
+            const allNodes = [clonedElement, ...Array.from(clonedElement.querySelectorAll('*'))] as HTMLElement[];
+            allNodes.forEach((node) => {
+              const inlineStyle = node.getAttribute('style');
+              if (inlineStyle && /(oklch|oklab|color-mix|light-dark|color|lab|lch|hwb)/i.test(inlineStyle)) {
+                node.setAttribute('style', replaceCssColorFunctions(inlineStyle));
+              }
+
+              try {
+                const computed = window.getComputedStyle(node);
+                colorProps.forEach((prop) => {
+                  const val = computed.getPropertyValue(prop);
+                  if (val && /(oklch|oklab|color-mix|light-dark|color|lab|lch|hwb)/i.test(val)) {
+                    node.style.setProperty(prop, replaceCssColorFunctions(val), 'important');
+                  }
+                });
+
+                if (node.style && node.style.length) {
+                  for (let i = 0; i < node.style.length; i++) {
+                    const styleName = node.style[i];
+                    const val = node.style.getPropertyValue(styleName);
+                    if (val && /(oklch|oklab|color-mix|light-dark|color|lab|lch|hwb)/i.test(val)) {
+                      node.style.setProperty(styleName, replaceCssColorFunctions(val), 'important');
+                    }
+                  }
+                }
+              } catch {
+                // ignore
+              }
+            });
+          }
+        },
       });
 
       const imgData = canvas.toDataURL('image/png');

@@ -9,20 +9,49 @@ export const app = express();
 
 app.use(express.json());
 
-// API Endpoints
-app.get('/api/gemini/status', (req, res) => {
+// Normalize Vercel rewrites if /api prefix is stripped
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/api') && (req.url.startsWith('/gemini') || req.url.startsWith('/repurpose'))) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
+function getApiKey(): string | undefined {
+  return (
+    process.env.GEMINI_API_KEY ||
+    process.env.GEMINI_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.VITE_GEMINI_API_KEY
+  );
+}
+
+// Candidate Gemini models to try in order (handles both standard public Gemini API keys and AI Studio aliases)
+const CANDIDATE_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.6-flash'];
+
+// API Status
+app.get(['/api/gemini/status', '/gemini/status'], (req, res) => {
+  const apiKey = getApiKey();
   res.json({
-    hasKey: !!process.env.GEMINI_API_KEY,
-    model: 'AI Engine',
+    hasKey: !!apiKey,
+    model: 'PharmAI Engine',
   });
 });
 
-app.post('/api/gemini/generate', async (req, res) => {
-  const apiKey = process.env.GEMINI_API_KEY;
+// GET fallback for generate route
+app.get(['/api/gemini/generate', '/gemini/generate'], (req, res) => {
+  res.json({
+    success: false,
+    error: 'GET method not supported on /api/gemini/generate. Please send a POST request with a prompt.',
+  });
+});
+
+app.post(['/api/gemini/generate', '/gemini/generate'], async (req, res) => {
+  const apiKey = getApiKey();
   if (!apiKey) {
     return res.status(200).json({
       success: false,
-      error: 'AI_API_KEY environment variable is missing. Please configure it in your Vercel Project Environment Variables.',
+      error: 'GEMINI_API_KEY environment variable is missing in Vercel settings. Please set GEMINI_API_KEY in your Vercel Project Environment Variables.',
       result: null,
     });
   }
@@ -37,40 +66,61 @@ app.post('/api/gemini/generate', async (req, res) => {
       },
     });
 
-    const { prompt, systemInstruction, temperature, jsonMode } = req.body;
+    const { prompt, systemInstruction, temperature, jsonMode } = req.body || {};
 
     const config: any = {};
     if (systemInstruction) config.systemInstruction = systemInstruction;
     if (temperature !== undefined) config.temperature = Number(temperature);
     if (jsonMode) config.responseMimeType = 'application/json';
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
-      contents: prompt || 'Hello',
-      config: Object.keys(config).length > 0 ? config : undefined,
-    });
+    let lastError: any = null;
+    let responseText: string | null = null;
 
-    res.json({
-      success: true,
-      result: response.text,
-      model: 'AI Engine',
+    for (const modelName of CANDIDATE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt || 'Hello',
+          config: Object.keys(config).length > 0 ? config : undefined,
+        });
+        if (response && response.text) {
+          responseText = response.text;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`[Gemini API] Model ${modelName} failed: ${err.message}`);
+        lastError = err;
+      }
+    }
+
+    if (responseText !== null) {
+      return res.json({
+        success: true,
+        result: responseText,
+        model: 'PharmAI Engine',
+      });
+    }
+
+    return res.status(200).json({
+      success: false,
+      error: (lastError && lastError.message) || 'Failed to call Gemini AI API.',
     });
   } catch (err: any) {
-    res.status(500).json({
+    return res.status(200).json({
       success: false,
-      error: err.message || 'Failed to call AI API',
+      error: err.message || 'Failed to call Gemini AI API.',
     });
   }
 });
 
 // Endpoint: AI-Powered Disease Drug Repurposing Predictor
-app.post('/api/repurpose/predict', async (req, res) => {
-  const { diseaseName } = req.body;
+app.post(['/api/repurpose/predict', '/repurpose/predict'], async (req, res) => {
+  const { diseaseName } = req.body || {};
   if (!diseaseName || typeof diseaseName !== 'string') {
-    return res.status(400).json({ success: false, error: 'diseaseName parameter is required.' });
+    return res.status(200).json({ success: false, error: 'diseaseName parameter is required.' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = getApiKey();
 
   // 1. If API Key is missing, use smart fallback generator immediately
   if (!apiKey) {
@@ -83,7 +133,7 @@ app.post('/api/repurpose/predict', async (req, res) => {
     });
   }
 
-  // 2. Try Gemini 3.6 Flash API
+  // 2. Try Gemini API models
   try {
     const ai = new GoogleGenAI({
       apiKey,
@@ -152,26 +202,41 @@ Return ONLY a valid JSON object following this exact schema:
   ]
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0.2,
-        maxOutputTokens: 8192,
-      },
-    });
+    let parsedData: any = null;
+    let lastError: any = null;
 
-    let rawText = (response.text || '').trim();
-    if (rawText.startsWith('```json')) {
-      rawText = rawText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (rawText.startsWith('```')) {
-      rawText = rawText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    for (const modelName of CANDIDATE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.2,
+            maxOutputTokens: 8192,
+          },
+        });
+
+        let rawText = (response.text || '').trim();
+        if (rawText.startsWith('```json')) {
+          rawText = rawText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        } else if (rawText.startsWith('```')) {
+          rawText = rawText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+        }
+
+        const data = JSON.parse(rawText);
+        if (data && data.disease && data.candidates && data.candidates.length > 0) {
+          parsedData = data;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`[Repurpose API] Model ${modelName} failed for disease "${diseaseName}": ${err.message}`);
+        lastError = err;
+      }
     }
 
-    const parsedData = JSON.parse(rawText);
-    if (!parsedData.disease || !parsedData.candidates || parsedData.candidates.length === 0) {
-      throw new Error('Incomplete data structure from Gemini model.');
+    if (!parsedData) {
+      throw lastError || new Error('Incomplete data structure from Gemini model.');
     }
 
     // Enrich graphNodes to include proper score and category fields
@@ -194,7 +259,7 @@ Return ONLY a valid JSON object following this exact schema:
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: parsedData,
       source: 'pharmai-gnn-engine',
@@ -202,10 +267,11 @@ Return ONLY a valid JSON object following this exact schema:
   } catch (err: any) {
     console.warn(`[Repurpose API] Gemini call failed (${err.message}). Using fallback generator for "${diseaseName}"`);
     const fallbackData = generateRepurposingSuite(diseaseName);
-    res.json({
+    return res.json({
       success: true,
       data: fallbackData,
       source: 'smart-fallback-engine',
     });
   }
 });
+

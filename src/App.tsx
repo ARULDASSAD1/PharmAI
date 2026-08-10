@@ -198,9 +198,14 @@ export default function App() {
           body: JSON.stringify({ diseaseName: trimmed }),
         });
 
-        const resData = await response.json();
-        if (resData.success && resData.data && resData.data.candidates && resData.data.candidates.length > 0) {
-          suiteData = resData.data;
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          const resData = await response.json();
+          if (resData.success && resData.data && resData.data.candidates && resData.data.candidates.length > 0) {
+            suiteData = resData.data;
+          } else {
+            suiteData = generateRepurposingSuite(trimmed);
+          }
         } else {
           suiteData = generateRepurposingSuite(trimmed);
         }
@@ -286,6 +291,14 @@ export default function App() {
           temperature: 0.3,
         }),
       });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const textErr = await res.text();
+        console.error('Non-JSON server response:', textErr);
+        setGeminiError('AI Server returned an invalid response. Please ensure GEMINI_API_KEY is configured in Vercel settings.');
+        return;
+      }
 
       const data = await res.json();
       if (!data.success) {
