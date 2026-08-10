@@ -16,6 +16,7 @@ import { DISEASES, DRUG_CANDIDATES, MOCK_GRAPH_NODES } from './data/mockData';
 import { DrugCandidate, FilterState, DiseaseTarget, GraphNode, GraphEdge } from './types/pharmai';
 import { generateRepurposingSuite } from './utils/repurposingEngine';
 import { loadSavedPredictions, savePredictionSuite } from './utils/predictionStorage';
+import { GoogleGenAI } from '@google/genai';
 
 export default function App() {
   // Selected Target Disease ID (default: 'breast-cancer')
@@ -238,7 +239,7 @@ export default function App() {
     setFilters((prev) => ({ ...prev, ...newFilters }));
   };
 
-  // Call server-side Gemini API (/api/gemini/generate)
+  // Call server-side Gemini API (/api/gemini/generate) or fallback to client SDK
   const handleAskGemini = async (customPrompt?: string) => {
     const promptToRun =
       customPrompt ||
@@ -246,6 +247,8 @@ export default function App() {
 
     setGeminiLoading(true);
     setGeminiError(null);
+
+    const clientApiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (window as any).GEMINI_API_KEY;
 
     try {
       const res = await fetch('/api/gemini/generate', {
@@ -261,19 +264,68 @@ export default function App() {
 
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
-        const textErr = await res.text();
-        console.error('Non-JSON server response:', textErr);
-        setGeminiError('AI Server returned an invalid response. Please ensure GEMINI_API_KEY is configured in Vercel settings.');
+        if (clientApiKey) {
+          const ai = new GoogleGenAI({ apiKey: clientApiKey });
+          const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+          for (const m of candidateModels) {
+            try {
+              const resp = await ai.models.generateContent({
+                model: m,
+                contents: promptToRun,
+              });
+              if (resp.text) {
+                setGeminiResponse(resp.text);
+                return;
+              }
+            } catch {
+              // try next
+            }
+          }
+        }
+        setGeminiError('AI Server endpoint returned invalid response. Please verify GEMINI_API_KEY is set in Vercel settings and trigger a Redeploy.');
         return;
       }
 
       const data = await res.json();
       if (!data.success) {
+        if (clientApiKey) {
+          const ai = new GoogleGenAI({ apiKey: clientApiKey });
+          const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+          for (const m of candidateModels) {
+            try {
+              const resp = await ai.models.generateContent({
+                model: m,
+                contents: promptToRun,
+              });
+              if (resp.text) {
+                setGeminiResponse(resp.text);
+                return;
+              }
+            } catch {
+              // try next
+            }
+          }
+        }
         setGeminiError(data.error || 'Failed to generate AI response.');
       } else {
         setGeminiResponse(data.result);
       }
     } catch (err: any) {
+      if (clientApiKey) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: clientApiKey });
+          const resp = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: promptToRun,
+          });
+          if (resp.text) {
+            setGeminiResponse(resp.text);
+            return;
+          }
+        } catch {
+          // fallback
+        }
+      }
       setGeminiError(err.message || 'Network error connecting to AI service.');
     } finally {
       setGeminiLoading(false);
