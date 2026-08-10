@@ -151,40 +151,7 @@ export default function App() {
 
     const targetSlug = trimmed.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
-    // 1. Check if disease is already present in active state or static list
-    const existing = allDiseases.find(
-      (d) => d.name.toLowerCase() === trimmed.toLowerCase() || d.id === targetSlug
-    );
-
-    if (existing && (DRUG_CANDIDATES[existing.id] || customCandidates[existing.id])) {
-      handleSelectDisease(existing.id);
-      return;
-    }
-
-    // 2. Check local storage cache for pre-saved predictions
-    const savedMap = loadSavedPredictions();
-    if (savedMap[targetSlug] || savedMap[trimmed.toLowerCase()]) {
-      const cachedSuite = savedMap[targetSlug] || savedMap[trimmed.toLowerCase()];
-      const diseaseId = cachedSuite.disease.id || targetSlug;
-
-      setCustomDiseases((prev) => [cachedSuite.disease, ...prev.filter((d) => d.id !== diseaseId)]);
-      setCustomCandidates((prev) => ({
-        ...prev,
-        [diseaseId]: cachedSuite.candidates || [],
-      }));
-      setCustomGraphs((prev) => ({
-        ...prev,
-        [diseaseId]: {
-          nodes: cachedSuite.graphNodes || [],
-          edges: cachedSuite.graphEdges || [],
-        },
-      }));
-
-      handleSelectDisease(diseaseId);
-      return;
-    }
-
-    // 3. Generate repurposing suite via backend API or AI engine
+    // Generate repurposing suite via backend API or AI engine
     setPredictingLoading(true);
     setPredictingDiseaseName(trimmed);
 
